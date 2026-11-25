@@ -1,0 +1,274 @@
+// LearnStream database schema (design_spec.md §7).
+//
+// SQLite is the local development database so the app runs with no external
+// service; switching `provider` to `postgresql` and re-running the migration is
+// the only change needed for a hosted database.
+//
+// SQLite has no native enum support in Prisma, so the two closed sets in the
+// domain — `role` and `kind` — are stored as strings and validated at the API
+// boundary (server/utils/validation.ts). The allowed values are documented on
+// each field.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A person who signs in. `role` is 'learner' | 'teacher' | 'admin'; learners
+/// watch and save, teachers and admins may also publish.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  /// scrypt digest, stored as "salt:hash". The password itself is never stored.
+  passwordHash String
+  role         String   @default("learner")
+  createdAt    DateTime @default(now())
+
+  sessions    Session[]
+  videos      Video[]
+  views       View[]
+  reactions   Reaction[]
+  savedVideos SavedVideo[]
+  comments    Comment[]
+  conversations Conversation[]
+  chatMessages  ChatMessage[]
+}
+
+/// A signed-in session. `id` is the opaque token held in an HTTP-only cookie.
+model Session {
+  id        String   @id
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// A subject / category. `videoCount` is never stored — it is derived from the
+/// catalog so it cannot drift (design_spec.md §7).
+model Subject {
+  id      String @id
+  slug    String @unique
+  name    String
+  /// Monogram shown in the subject tile (design_spec.md §8.7).
+  icon    String
+  tagline String
+
+  videos Video[]
+}
+
+/// A free-form keyword. The relation to Video is many-to-many.
+model Tag {
+  id   String @id @default(cuid())
+  slug String @unique
+  name String
+
+  videos Video[]
+}
+
+/// A lesson. Descriptive fields live here; technical file details live on
+/// VideoMetadata. Counters are denormalised so the catalog can sort by
+/// popularity in the database; every write to a counter happens in the same
+/// transaction as the row it counts, and `scripts/recount.ts` can rebuild them.
+model Video {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  /// 'published' | 'processing' — an upload becomes published once its file is
+  /// safely on disk (design_spec.md §4.5).
+  status      String   @default("processing")
+  viewCount   Int      @default(0)
+  likeCount   Int      @default(0)
+  dislikeCount Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subjectId String
+  uploaderId String
+
+  subject  Subject @relation(fields: [subjectId], references: [id])
+  uploader User    @relation(fields: [uploaderId], references: [id])
+
+  metadata  VideoMetadata?
+  tags      Tag[]
+  views     View[]
+  reactions Reaction[]
+  savedBy   SavedVideo[]
+  comments  Comment[]
+  chapters  Chapter[]
+  captions  Caption[]
+
+  @@index([subjectId])
+  @@index([uploaderId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+/// The technical facts about a lesson's file. Separated from Video so listing
+/// the catalog never has to read blob-ish columns.
+model VideoMetadata {
+  videoId String @id
+
+  /// Relative path under the media root. Null for seeded demo lessons, which
+  /// carry no file and render their poster instead (design_spec.md §8.1).
+  storageKey String?
+  fileName   String?
+  mimeType   String?
+  sizeBytes  Int?
+  /// External poster URL, used by seeded lessons.
+  thumbnailUrl String?
+  /// Relative path under the media root for an uploaded thumbnail.
+  thumbnailKey String?
+  durationSec  Int     @default(0)
+  width        Int?
+  height       Int?
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+}
+
+/// One counted view. Rows exist so "most viewed" is auditable and the same
+/// viewer cannot inflate the total by refreshing (design_spec.md §4.3).
+model View {
+  id        String   @id @default(cuid())
+  videoId   String
+  /// Null for a signed-out visitor.
+  userId    String?
+  /// Salted hash of the viewer's address and user agent, so the duplicate
+  /// window works without storing anything identifying.
+  viewerKey String
+  createdAt DateTime @default(now())
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([videoId, viewerKey, createdAt])
+  @@index([videoId])
+}
+
+/// A like or a dislike. One row per person per lesson, so selecting one
+/// replaces the other rather than adding a second vote.
+model Reaction {
+  id        String   @id @default(cuid())
+  videoId   String
+  userId    String
+  /// 'like' | 'dislike'
+  kind      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, userId])
+  @@index([videoId])
+}
+
+/// A lesson a learner kept for later.
+model SavedVideo {
+  id      String   @id @default(cuid())
+  videoId String
+  userId  String
+  savedAt DateTime @default(now())
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, userId])
+  @@index([userId, savedAt])
+}
+
+/// A question attached to a lesson.
+model Comment {
+  id         String   @id @default(cuid())
+  videoId    String
+  userId     String?
+  /// Snapshotted so a comment keeps its author's name if the account changes.
+  authorName String
+  body       String
+  createdAt  DateTime @default(now())
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([videoId, createdAt])
+}
+
+/// A timed caption / transcript cue, in seconds.
+model Caption {
+  id      String @id @default(cuid())
+  videoId String
+  /// Position in the track, so the order never depends on timestamps.
+  position Int
+  start    Float
+  end      Float
+  text     String
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId, position])
+}
+
+/// A named section of a longer lesson.
+model Chapter {
+  id      String @id @default(cuid())
+  videoId String
+  position Int
+  startSec Int
+  title    String
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId, position])
+}
+
+/// One support conversation between a learner and staff (design_spec.md §4.9).
+///
+/// `userId` is unique: a learner has exactly one thread, so the widget never has
+/// to ask which one to open. The thread is created lazily by the first message,
+/// so an account that never writes leaves no empty row behind.
+model Conversation {
+  id String @id @default(cuid())
+  /// One thread per account.
+  userId String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  /// Denormalised so the staff inbox can be ordered without joining messages.
+  lastMessageAt DateTime @default(now())
+
+  /// Read markers. 'Unread for me' is every line from the other side newer than
+  /// my marker, which is why neither side is ever told about its own lines.
+  studentReadAt DateTime?
+  staffReadAt   DateTime?
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([lastMessageAt])
+}
+
+/// One line of a support conversation.
+model ChatMessage {
+  id             String @id @default(cuid())
+  conversationId String
+  authorId       String
+  /// Snapshotted, like `Comment.authorName`, so the thread keeps its attribution.
+  authorName String
+  /// Which side of the conversation wrote the line. A boolean rather than a
+  /// role string: only two sides exist, and it is never chosen by a visitor.
+  fromStaff Boolean
+  body      String
+  createdAt DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}

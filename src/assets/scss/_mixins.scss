@@ -1,0 +1,41 @@
+// Sass mixins — mobile-first breakpoints, focus ring and truncation.
+@use 'sass:map';
+
+// Tailwind's default breakpoints (design_spec.md §1.4)
+$breakpoints: (
+  sm: 640px,
+  md: 768px,
+  lg: 1024px,
+  xl: 1280px,
+  2xl: 1536px
+);
+
+// Mobile-first media query: @include up(md) { ... }
+@mixin up($name) {
+  @media (min-width: map.get($breakpoints, $name)) {
+    @content;
+  }
+}
+
+// Focus ring built from the Nuxt UI primary token. `focus-outline` emits the
+// ring itself — use it on a wrapper that tracks focus for an inner control.
+@mixin focus-outline {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+// Keyboard-only focus ring. Scoped to :focus-visible so links and buttons are
+// never outlined at rest.
+@mixin focus-ring {
+  &:focus-visible {
+    @include focus-outline;
+  }
+}
+
+// Clamp text to a number of lines
+@mixin truncate($lines: 1) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
