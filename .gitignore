@@ -10,9 +10,11 @@ components.d.ts
 # Secrets — never commit
 .env
 .env.*
+.env*
 !.env.example
 
 # Local database and uploaded media
 prisma/dev.db
 prisma/dev.db-journal
 server/storage
+.vercel

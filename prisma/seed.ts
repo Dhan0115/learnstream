@@ -1,13 +1,9 @@
 // Database seed (design_spec.md §8.9).
 //
-// Reproduces exactly the content the site shipped with as static data, so the
-// catalog looks identical the day the database takes over. Run with
-// `pnpm db:seed`; it is idempotent — the tables are cleared first, because a
-// re-seed must never mix old rows with new ones.
-//
-// Node runs this file directly (type stripping), so the imports below carry
-// explicit `.ts` extensions.
+// Run `pnpm exec prisma db seed` to add missing fixtures without resetting data.
 
+import { randomUUID } from 'node:crypto'
+import { PrismaPg } from '@prisma/adapter-pg'
 import { PrismaClient } from '@prisma/client'
 import { hashPassword } from '../server/utils/password.ts'
 import { slugify } from '../server/utils/slug.ts'
@@ -15,7 +11,11 @@ import { seedVideos } from '../src/data/videos.ts'
 import { seedComments } from '../src/data/comments.ts'
 import { subjects } from '../src/data/subjects.ts'
 
-const prisma = new PrismaClient()
+const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL
+if (!connectionString || !/^postgres(?:ql)?:\/\//i.test(connectionString)) {
+  throw new Error('Set DIRECT_URL or DATABASE_URL to a PostgreSQL connection string.')
+}
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) })
 
 /** Every seeded account signs in with this password in development only. */
 const DEV_PASSWORD = 'learnstream-dev'
@@ -29,23 +29,11 @@ function emailFor(uploaderId: string): string {
 }
 
 async function main() {
-  // Clear in foreign-key order so the seed can be re-run at any time.
-  await prisma.caption.deleteMany()
-  await prisma.chapter.deleteMany()
-  await prisma.comment.deleteMany()
-  await prisma.savedVideo.deleteMany()
-  await prisma.reaction.deleteMany()
-  await prisma.view.deleteMany()
-  await prisma.videoMetadata.deleteMany()
-  await prisma.video.deleteMany()
-  await prisma.tag.deleteMany()
-  await prisma.subject.deleteMany()
-  await prisma.session.deleteMany()
-  await prisma.user.deleteMany()
+  await prisma.subject.createMany({ data: subjects, skipDuplicates: true })
 
-  await prisma.subject.createMany({ data: subjects })
-
-  const passwordHash = await hashPassword(DEV_PASSWORD)
+  const localDemo = process.env.NODE_ENV !== 'production' &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(new URL(connectionString!).hostname)
+  const passwordHash = await hashPassword(localDemo ? DEV_PASSWORD : randomUUID())
 
   // One account per seeded uploader, taken from the lessons themselves so the
   // two can never disagree.
@@ -53,23 +41,26 @@ async function main() {
   for (const video of seedVideos) uploaders.set(video.uploaderId, video.uploaderName)
 
   for (const [id, name] of uploaders) {
-    await prisma.user.create({
-      data: { id, name, email: emailFor(id), passwordHash, role: 'teacher' }
+    await prisma.user.upsert({
+      where: { id }, update: {},
+      create: { id, name, email: emailFor(id), passwordHash, role: 'teacher' }
     })
   }
 
   // One administrator, for the moderation tools in the brief's "if time
   // permits" list. No lesson is owned by it, so it cannot be an uploader.
-  await prisma.user.create({
-    data: { name: 'LearnStream Admin', email: ADMIN_EMAIL, passwordHash, role: 'admin' }
+  await prisma.user.upsert({
+    where: { email: ADMIN_EMAIL }, update: {},
+    create: { name: 'LearnStream Admin', email: ADMIN_EMAIL, passwordHash, role: 'admin' }
   })
 
   // Tags are free-form, so gather the union before inserting.
   const tagNames = new Set(seedVideos.flatMap(video => video.tags))
   for (const name of tagNames) {
-    await prisma.tag.create({ data: { slug: slugify(name), name } })
+    const slug = slugify(name)
+    await prisma.tag.upsert({ where: { slug }, update: {}, create: { slug, name } })
   }
-  const tags = await prisma.tag.findMany()
+  const tags = await prisma.tag.findMany({ where: { slug: { in: [...tagNames].map(slugify) } } })
   const tagIdBySlug = new Map(tags.map(tag => [tag.slug, tag.id]))
 
   const subjectBySlug = new Map(subjects.map(subject => [subject.slug, subject.id]))
@@ -78,8 +69,9 @@ async function main() {
     const subjectId = subjectBySlug.get(video.subjectSlug)
     if (!subjectId) throw new Error(`Unknown subject "${video.subjectSlug}" on ${video.id}`)
 
-    await prisma.video.create({
-      data: {
+    await prisma.video.upsert({
+      where: { id: video.id }, update: {},
+      create: {
         id: video.id,
         title: video.title,
         description: video.description,
@@ -117,8 +109,9 @@ async function main() {
   }
 
   for (const comment of seedComments) {
-    await prisma.comment.create({
-      data: {
+    await prisma.comment.upsert({
+      where: { id: comment.id }, update: {},
+      create: {
         id: comment.id,
         videoId: comment.videoId,
         // Seeded authors are not accounts, so the name is snapshotted only.
@@ -133,8 +126,6 @@ async function main() {
     `Seeded ${subjects.length} subjects, ${seedVideos.length} lessons, ` +
       `${tagNames.size} tags, ${seedComments.length} comments.`
   )
-  console.log(`Seeded accounts sign in with the password "${DEV_PASSWORD}".`)
-  console.log(`Administrator: ${ADMIN_EMAIL}`)
 }
 
 main()

@@ -18,6 +18,18 @@ export default defineNitroConfig({
   // In production this same server also hands out the built SPA.
   publicAssets: [{ dir: distDir, baseURL: '/', maxAge: 60 * 60 }],
 
+  // Deep links. The Vue router uses history mode, so `/browse` and
+  // `/watch/<id>` only exist in the browser: without a rewrite a hard refresh
+  // or a shared link reaches the function, finds no matching route and 404s.
+  // The route runs before Vercel's filesystem handler, so it must step aside
+  // for the API, the media route, and any real file (assets, index.html,
+  // favicon) — those have a dot in their final segment.
+  vercel: {
+    config: {
+      routes: [{ src: '/((?!api/|media/)[^.]*)', dest: '/index.html' }]
+    }
+  },
+
   // Prisma ships a native query engine that must stay a real file on disk
   // rather than being inlined into the server bundle.
   externals: { external: ['@prisma/client', '.prisma/client'] }
