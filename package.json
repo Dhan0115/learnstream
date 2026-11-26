@@ -19,12 +19,13 @@
     "prepare": "prisma generate && nitro prepare"
   },
   "prisma": {
-   "seed": "npx tsx prisma/seed.ts"
+    "seed": "npx tsx prisma/seed.ts"
   },
   "dependencies": {
     "@nuxt/ui": "^4.12.0",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
+    "@vercel/blob": "^2.9.0",
     "dotenv": "^18.0.10",
     "h3": "1.15.11",
     "nitropack": "^2.13.6",

@@ -127,9 +127,13 @@ export default defineEventHandler(async (event: H3Event) => {
     ? newStorageKey('thumbnails', extensionFor(thumbnailPart.name, thumbnailPart.type ?? ''))
     : null
 
-  await saveUpload(videoKey, Buffer.from(await videoPart.arrayBuffer()))
+  await saveUpload(videoKey, Buffer.from(await videoPart.arrayBuffer()), videoPart.type ?? '')
   if (thumbnailPart && thumbnailKey) {
-    await saveUpload(thumbnailKey, Buffer.from(await thumbnailPart.arrayBuffer()))
+    await saveUpload(
+      thumbnailKey,
+      Buffer.from(await thumbnailPart.arrayBuffer()),
+      thumbnailPart.type ?? ''
+    )
   }
 
   try {

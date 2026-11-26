@@ -1,15 +1,36 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, extname, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { BlobNotFoundError, del, head, put } from '@vercel/blob'
 import { mediaRoot } from './config'
 
 /**
- * Media on disk.
+ * Media, in Vercel Blob when a store is configured and on disk otherwise.
  *
  * Everything is addressed by a `storageKey` — a relative path such as
  * `videos/8f3c….mp4` — and never by anything the client supplied, so a request
  * cannot name a file outside the media root.
  */
+
+/**
+ * True when a Blob store is configured.
+ *
+ * A deployment has no writable disk to keep uploads on, so it uses Blob;
+ * local development has no token and falls back to the media root.
+ */
+export function usesBlobStorage(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN)
+}
+
+/** The public URL of a stored blob, or null when the store has no such key. */
+export async function blobUrl(key: string): Promise<string | null> {
+  try {
+    return (await head(key)).url
+  } catch (error) {
+    if (error instanceof BlobNotFoundError) return null
+    throw error
+  }
+}
 
 export function storagePath(key: string): string {
   return resolve(mediaRoot(), key)
@@ -46,7 +67,14 @@ export function extensionFor(fileName: string | undefined, mimeType: string): st
   return EXTENSION_BY_MIME[mimeType] ?? ''
 }
 
-export async function saveUpload(key: string, data: Buffer): Promise<void> {
+export async function saveUpload(key: string, data: Buffer, contentType: string): Promise<void> {
+  if (usesBlobStorage()) {
+    // `addRandomSuffix: false` keeps the stored key identical to the one the
+    // database records, so the media route can find the blob again by key.
+    await put(key, data, { access: 'public', contentType, addRandomSuffix: false })
+    return
+  }
+
   const target = storagePath(key)
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, data)
@@ -54,6 +82,11 @@ export async function saveUpload(key: string, data: Buffer): Promise<void> {
 
 /** Best-effort cleanup — a failed upload must not leave a stray file behind. */
 export async function removeUpload(key: string): Promise<void> {
+  if (usesBlobStorage()) {
+    await del(key)
+    return
+  }
+
   if (!isInsideMediaRoot(key)) return
   await rm(storagePath(key), { force: true })
 }

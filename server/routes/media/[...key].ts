@@ -4,6 +4,7 @@ import { extname } from 'node:path'
 import {
   getRequestHeader,
   getRouterParam,
+  sendRedirect,
   sendStream,
   setResponseHeader,
   setResponseStatus,
@@ -12,15 +13,19 @@ import {
 import { apiError, unauthorized } from '../../utils/errors'
 import { prisma } from '../../utils/prisma'
 import { currentUser } from '../../utils/session'
-import { isInsideMediaRoot, storagePath } from '../../utils/storage'
+import { blobUrl, isInsideMediaRoot, storagePath, usesBlobStorage } from '../../utils/storage'
 
 /**
  * Streams uploaded media (design_spec.md §4.4).
  *
- * Range requests are answered with 206 and a `content-range`, which is what
- * makes seeking work: without it the browser must download the whole file
+ * On disk, range requests are answered with 206 and a `content-range`, which is
+ * what makes seeking work: without it the browser must download the whole file
  * before it can scrub. `storagePath` refuses any key that resolves outside the
  * media root, so this endpoint cannot be used to read arbitrary files.
+ *
+ * In a deployment the file lives in Vercel Blob instead, and the request is sent
+ * on to the blob's own URL — Blob serves ranges itself, so the same seeking
+ * works without this process proxying the bytes.
  *
  * Video files are for members only, so a visitor without an account is refused
  * here as well as by the route guard. Thumbnails stay public so listings and
@@ -84,6 +89,12 @@ export default defineEventHandler(async (event: H3Event) => {
   if (linked.storageKey === key) {
     const user = await currentUser(event)
     if (!user) throw unauthorized('Sign in to watch this lesson.')
+  }
+
+  if (usesBlobStorage()) {
+    const url = await blobUrl(key)
+    if (!url) throw missing
+    return sendRedirect(event, url, 302)
   }
 
   const path = storagePath(key)
