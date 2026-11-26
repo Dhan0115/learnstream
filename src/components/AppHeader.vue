@@ -67,8 +67,7 @@ watch(() => route.fullPath, () => {
   >
     <div class="app-header__inner">
       <RouterLink class="app-header__logo" to="/" aria-label="LearnStream home">
-        <span class="app-header__mark" aria-hidden="true">LS</span>
-        <span class="app-header__wordmark">LearnStream</span>
+        <img src="@/assets/learnstream-nav.png" width="44" height="44" alt="" />
       </RouterLink>
 
       <nav class="app-header__nav" aria-label="Primary">
@@ -189,26 +188,6 @@ watch(() => route.fullPath, () => {
     border-radius: $radius-sm;
 
     @include focus-ring;
-  }
-
-  &__mark {
-    display: grid;
-    place-items: center;
-    width: 2rem;
-    height: 2rem;
-    font-size: 0.75rem;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: var(--ui-bg);
-    background: $color-primary;
-    border-radius: $radius-md;
-  }
-
-  &__wordmark {
-    font-size: 1.0625rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    color: $color-text-highlighted;
   }
 
   &__nav {

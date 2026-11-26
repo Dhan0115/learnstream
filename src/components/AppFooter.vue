@@ -38,8 +38,7 @@ const columns = computed(() => [
     <div class="app-footer__inner">
       <div class="app-footer__brand">
         <RouterLink class="app-footer__logo" to="/" aria-label="LearnStream home">
-          <span class="app-footer__mark" aria-hidden="true">LS</span>
-          <span class="app-footer__wordmark">LearnStream</span>
+          <img src="@/assets/learnstream-nav.png" width="44" height="44" alt="" />
         </RouterLink>
         <p class="app-footer__tagline">
           Learn any subject through clear, engaging video lessons — built for students,
@@ -106,24 +105,6 @@ const columns = computed(() => [
     border-radius: $radius-sm;
 
     @include focus-ring;
-  }
-
-  &__mark {
-    display: grid;
-    place-items: center;
-    width: 2rem;
-    height: 2rem;
-    font-size: 0.75rem;
-    font-weight: 800;
-    color: var(--ui-bg);
-    background: $color-primary;
-    border-radius: $radius-md;
-  }
-
-  &__wordmark {
-    font-size: 1.0625rem;
-    font-weight: 700;
-    color: $color-text-highlighted;
   }
 
   &__tagline {
